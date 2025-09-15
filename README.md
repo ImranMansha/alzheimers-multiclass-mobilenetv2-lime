@@ -18,19 +18,22 @@ This repository contains a reproducible Jupyter/Colab notebook that trains a Mob
 
 ---
 
-## Dataset (as used in the notebook)
+## Dataset
 
-The notebook assumes you have the original dataset arranged as class folders (example path in notebook):
+The dataset used in this project is available on **Google Drive**:
+👉 [Download MRI Dataset](https://drive.google.com/drive/folders/1bMjyLQRYaugvy2LyqDcSuez2n_hkVwDu?usp=sharing)
+
+The dataset should be arranged in class folders as shown:
 
 ```
-/content/drive/MyDrive/alzheimer_dataset/OriginalDataset
+OriginalDataset/
   ├─ NonDemented/
   ├─ VeryMildDemented/
   ├─ MildDemented/
   └─ ModerateDemented/
 ```
 
-**Detected class distribution in the notebook run (example):**
+**Example class distribution in the notebook run:**
 
 * `NonDemented`    : 3210 images (≈50.00%)
 * `VeryMildDemented`: 2250 images (≈35.05%)
@@ -39,20 +42,28 @@ The notebook assumes you have the original dataset arranged as class folders (ex
 
 *Total images: 6420*
 
-> Note: your numbers may vary depending on your dataset source. The notebook will reproduce the dataset split and recompute class weights automatically.
+### How to download automatically
 
----
+You can fetch the dataset programmatically using `gdown` in Colab or Jupyter:
 
-## Repo structure (recommended)
-
+```bash
+pip install gdown
 ```
-alzheimers-multiclass-mobilenetv2-lime/
-├─ README.md
-├─ requirements.txt
-├─ Alzheimer(Multi_Class+LIME).ipynb   # main notebook (this project)
-├─ scripts/                             # optional: helper scripts for preprocessing, inference
-├─ models/                              # saved model(s) (e.g. alzheimer_multiclass_best_model.h5)
-└─ sample_explanations/                 # generated LIME visualizations
+
+```python
+import gdown
+
+# Folder link
+dataset_url = 'https://drive.google.com/drive/folders/1bMjyLQRYaugvy2LyqDcSuez2n_hkVwDu?usp=sharing'
+
+# Use gdown to download (requires the folder to be public)
+!gdown --folder $dataset_url -O ./alzheimer_dataset
+```
+
+Then set dataset path in the notebook:
+
+```python
+dataset_path = './alzheimer_dataset/OriginalDataset'
 ```
 
 ---
@@ -73,6 +84,7 @@ opencv-python
 lime
 jupyter
 nbformat
+gdown
 ```
 
 Install quickly with:
@@ -80,7 +92,7 @@ Install quickly with:
 ```bash
 pip install -r requirements.txt
 # or for Colab inside a cell
-!pip install lime
+!pip install lime gdown
 ```
 
 ---
@@ -88,17 +100,15 @@ pip install -r requirements.txt
 ## Quick start (Colab / Jupyter)
 
 1. Open `Alzheimer(Multi_Class+LIME).ipynb` in Colab or Jupyter.
-2. Mount Google Drive (if using Colab) so the notebook can read and write model checkpoints and data.
+2. Download the dataset using the link above or via `gdown`.
+3. Mount Google Drive (if using Colab) so the notebook can read/write model checkpoints and data.
 
 ```python
 from google.colab import drive
 drive.mount('/content/drive')
-
-# set dataset path (edit if your path is different)
-dataset_path = '/content/drive/MyDrive/alzheimer_dataset/OriginalDataset'
 ```
 
-3. Run cells in order. The notebook will:
+4. Run cells in order. The notebook will:
 
    * Verify dataset folders
    * Create a working split at `/content/alz_multiclass_split` (train/val/test)
@@ -114,9 +124,7 @@ dataset_path = '/content/drive/MyDrive/alzheimer_dataset/OriginalDataset'
 * The model uses `MobileNetV2` as the base and adds a `GlobalAveragePooling2D` layer + Dense(128) + Dropout before the softmax output for `NUM_CLASSES=4`.
 * The notebook freezes all layers initially then unfreezes the last \~30 non-BatchNorm layers for fine-tuning.
 * Optimizer: `Adam(learning_rate=1e-4)` and loss `categorical_crossentropy`.
-* Class imbalance is addressed with `sklearn.utils.class_weight.compute_class_weight(class_weight='balanced', ...)` and passed to `model.fit(..., class_weight=class_weights)`.
-
-Recommended callback settings are present (EarlyStopping with `restore_best_weights=True`, ReduceLROnPlateau, ModelCheckpoint monitored on `val_accuracy`).
+* Class imbalance is addressed with `sklearn.utils.class_weight.compute_class_weight(class_weight='balanced', ...)`.
 
 ---
 
@@ -125,9 +133,9 @@ Recommended callback settings are present (EarlyStopping with `restore_best_weig
 After training, the notebook:
 
 * Runs `model.predict()` on `test_generator`
-* Prints a classification report (`precision`, `recall`, `f1-score`) and plots a confusion matrix via `seaborn.heatmap`
+* Prints a classification report (`precision`, `recall`, `f1-score`) and plots a confusion matrix
 
-To run inference on a single image (example from the notebook):
+To run inference on a single image:
 
 ```python
 from tensorflow.keras.preprocessing import image
@@ -142,12 +150,6 @@ pred_class = pred.argmax(axis=1)[0]
 print('Predicted:', class_labels[pred_class])
 ```
 
-Saved model example path used in the notebook:
-
-```
-/content/drive/MyDrive/alzheimer_multiclass_best_model.h5
-```
-
 ---
 
 ## LIME explainability
@@ -155,39 +157,19 @@ Saved model example path used in the notebook:
 The notebook includes a `predict_fn(imgs)` wrapper and a `run_lime(pil_img, pred_class)` helper that:
 
 * Uses `lime.lime_image.LimeImageExplainer()`
-* Calls `explain_instance(np.array(pil_img), predict_fn, top_labels=4, num_samples=1000)`
-* Generates a mask with `explanation.get_image_and_mask(...)` and visualizes boundaries with `skimage.segmentation.mark_boundaries`
+* Generates a mask and overlays it with `skimage.segmentation.mark_boundaries`
 
-Usage (from the notebook):
+Usage:
 
 ```python
-from skimage.segmentation import mark_boundaries
 lime_img = run_lime(pil_img, pred_class)
 plt.imshow(lime_img)
 plt.title(f"LIME\n{label}")
 plt.show()
 ```
 
-**Tip:** LIME can be slow because it queries the model many times (`num_samples=1000` by default). Reduce `num_samples` for faster but noisier explanations.
-
 ---
 
-## Reproducibility tips
-
-* Fix seeds (`numpy`, `tensorflow`) if deterministic runs are desired (note: GPU non-determinism may remain).
-* Use the same `IMG_SIZE`, `BATCH_SIZE`, and preprocessing function (`tf.keras.applications.mobilenet_v2.preprocess_input`).
-* If you have limited GPU memory, reduce `BATCH_SIZE` or freeze more base layers.
-
----
-
-## Files to add to the repo
-
-* `Alzheimer(Multi_Class+LIME).ipynb` (the notebook)
-* `requirements.txt` (pinned versions if possible)
-* `.gitignore` (ignore large model files & dataset, e.g. `models/*`, `__pycache__/`, `*.h5`)
-* `LICENSE` (MIT recommended for code samples)
-
----
 
 ## License
 
@@ -197,7 +179,10 @@ This repository is released under the **MIT License**. Change as appropriate.
 
 ## Acknowledgements
 
-* The notebook uses `MobileNetV2` and the `lime` library. This project was built as a proof-of-concept classification + explainability pipeline for an Alzheimer image dataset.
+* The notebook uses `MobileNetV2` and the `lime` library.
+* Dataset courtesy of the shared Google Drive link above.
 
 ---
-Author: Imran Mansha
+
+**Author** : [Imran Mansha](https://www.linkedin.com/in/imranmansha/)
+
